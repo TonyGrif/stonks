@@ -1,0 +1,15 @@
+settings:
+  run_on_startup: true # fetch all tickers immediately on start, before the schedule fires
+
+tickers:
+  - symbol: AAPL
+    schedule: "0 16 * * 1-5"       # market close, weekdays
+    fields: [open, high, low, close, volume, market_cap, pe_ratio]
+
+  - symbol: GOOGL
+    schedule: "0 9 * * 1-5"        # market open, weekdays
+    fields: [open, high, low, close, volume]
+
+  - symbol: SPY
+    schedule: "*/30 9-16 * * 1-5"  # every 30 min during market hours
+    fields: [open, high, low, close, volume, dividends]

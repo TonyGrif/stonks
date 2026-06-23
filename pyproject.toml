@@ -1,0 +1,20 @@
+[project]
+name = "stonks"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "apscheduler>=3.10",
+    "yfinance>=0.2",
+    "psycopg2-binary",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-mock>=3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
