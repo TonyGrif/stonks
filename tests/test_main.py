@@ -42,7 +42,7 @@ class TestMakeJob:
 class TestRunOnStartup:
     def _run_main(self, mocker, run_on_startup: bool):
         config = {
-            "settings": {"run_on_startup": run_on_startup},
+            "settings": {"run_on_startup": run_on_startup, "timezone": "UTC"},
             "tickers": [
                 {"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"],
                  "period": "1d", "interval": "1d"},
@@ -82,6 +82,36 @@ class TestRunOnStartup:
 
         main.main()
         mock_fetch.assert_not_called()
+
+    def test_timezone_passed_to_cron_trigger(self, mocker):
+        config = {
+            "settings": {"run_on_startup": False, "timezone": "America/New_York"},
+            "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"],
+                         "period": "1d", "interval": "1d"}],
+        }
+        mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(config)))
+        mocker.patch("main.fetcher.fetch", return_value=_ROWS)
+        mocker.patch("main.db.upsert")
+        mocker.patch("main.db.ensure_schema")
+        mock_cron = mocker.patch("main.CronTrigger.from_crontab")
+        mocker.patch("main.BlockingScheduler").return_value
+
+        main.main()
+        mock_cron.assert_called_once_with("0 16 * * 1-5", timezone="America/New_York")
+
+    def test_missing_timezone_defaults_to_utc(self, mocker):
+        config = {
+            "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"]}]
+        }
+        mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(config)))
+        mocker.patch("main.fetcher.fetch", return_value=_ROWS)
+        mocker.patch("main.db.upsert")
+        mocker.patch("main.db.ensure_schema")
+        mock_cron = mocker.patch("main.CronTrigger.from_crontab")
+        mocker.patch("main.BlockingScheduler").return_value
+
+        main.main()
+        mock_cron.assert_called_once_with("0 16 * * 1-5", timezone="UTC")
 
     def test_missing_period_interval_defaults_to_1d(self, mocker):
         config = {

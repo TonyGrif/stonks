@@ -1,21 +1,22 @@
 settings:
   run_on_startup: true # fetch all tickers immediately on start, before the schedule fires
+  timezone: America/New_York  # cron schedules interpreted in this timezone; data stored in UTC
 
 tickers:
   - symbol: AAPL
-    schedule: "0 16 * * 1-5"       # market close, weekdays
+    schedule: "0 16 * * 1-5"       # market close, 4pm Eastern
     period: 1d
     interval: 1d
     fields: [open, high, low, close, volume, market_cap, pe_ratio]
 
   - symbol: GOOGL
-    schedule: "0 9 * * 1-5"        # market open, weekdays
+    schedule: "30 9 * * 1-5"       # market open, 9:30am Eastern
     period: 1d
     interval: 1d
     fields: [open, high, low, close, volume]
 
   - symbol: SPY
-    schedule: "*/10 9-16 * * 1-5"  # every 10 min during market hours
+    schedule: "*/10 9-16 * * 1-5"  # every 10 min during market hours, Eastern
     period: 1d
     interval: 5m
     fields: [open, high, low, close, volume, dividends]

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 import yaml
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_SCHEDULER_STARTED
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -39,6 +40,36 @@ def setup_logging() -> None:
         handlers=handlers,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+
+
+def register_listeners(scheduler: BlockingScheduler) -> None:
+    """Attach event listeners that log schedule status to the scheduler.
+
+    Two listeners are registered:
+
+    * ``EVENT_SCHEDULER_STARTED`` — logs the first ``next_run_time`` for
+      every job once the scheduler has initialised and computed its initial
+      fire times.
+    * ``EVENT_JOB_EXECUTED | EVENT_JOB_ERROR`` — logs the next scheduled
+      run time after every job execution so the log shows a continuous
+      record of when each ticker will fetch next.
+
+    Args:
+        scheduler: The ``BlockingScheduler`` instance to attach listeners to.
+    """
+    logger = logging.getLogger("scheduler")
+
+    def on_started(_event) -> None:
+        for job in scheduler.get_jobs():
+            logger.info("[%s] next run: %s", job.id, job.next_run_time)
+
+    def on_executed(event) -> None:
+        job = scheduler.get_job(event.job_id)
+        if job:
+            logger.info("[%s] next run: %s", job.id, job.next_run_time)
+
+    scheduler.add_listener(on_started, EVENT_SCHEDULER_STARTED)
+    scheduler.add_listener(on_executed, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
 
 def make_job(symbol: str, fields: list[str], period: str, interval: str) -> Callable:
@@ -84,9 +115,13 @@ def main() -> None:
         3. Ensure the database schema exists.
         4. Register one APScheduler cron job per ticker entry.
            ``period`` and ``interval`` default to ``"1d"`` if omitted.
-        5. If ``settings.run_on_startup`` is ``true``, run all jobs once
+           ``settings.timezone`` (default ``"UTC"``) is applied to all
+           cron expressions so schedules can be written in exchange local
+           time; bar timestamps are still stored as UTC in the database.
+        5. Attach event listeners for startup and post-execution logging.
+        6. If ``settings.run_on_startup`` is ``true``, run all jobs once
            immediately before handing control to the scheduler.
-        6. Start the blocking scheduler (runs until process is killed).
+        7. Start the blocking scheduler (runs until process is killed).
     """
     setup_logging()
     logger = logging.getLogger("main")
@@ -98,8 +133,12 @@ def main() -> None:
     logger.info("ensuring database schema")
     db.ensure_schema()
 
+    settings = config.get("settings", {})
+    run_on_startup = settings.get("run_on_startup", False)
+    timezone = settings.get("timezone", "UTC")
+
     scheduler = BlockingScheduler()
-    run_on_startup = config.get("settings", {}).get("run_on_startup", False)
+    register_listeners(scheduler)
 
     for entry in config["tickers"]:
         symbol = entry["symbol"]
@@ -109,10 +148,10 @@ def main() -> None:
         interval = entry.get("interval", "1d")
 
         job = make_job(symbol, fields, period, interval)
-        scheduler.add_job(job, CronTrigger.from_crontab(schedule), id=symbol)
+        scheduler.add_job(job, CronTrigger.from_crontab(schedule, timezone=timezone), id=symbol)
         logger.info(
-            "[%s] registered — schedule: %s, period: %s, interval: %s — fields: %s",
-            symbol, schedule, period, interval, fields,
+            "[%s] registered — schedule: %s (%s), period: %s, interval: %s — fields: %s",
+            symbol, schedule, timezone, period, interval, fields,
         )
 
         if run_on_startup:
