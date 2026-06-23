@@ -4,12 +4,18 @@ settings:
 tickers:
   - symbol: AAPL
     schedule: "0 16 * * 1-5"       # market close, weekdays
+    period: 1d
+    interval: 1d
     fields: [open, high, low, close, volume, market_cap, pe_ratio]
 
   - symbol: GOOGL
     schedule: "0 9 * * 1-5"        # market open, weekdays
+    period: 1d
+    interval: 1d
     fields: [open, high, low, close, volume]
 
   - symbol: SPY
-    schedule: "*/30 9-16 * * 1-5"  # every 30 min during market hours
+    schedule: "*/10 9-16 * * 1-5"  # every 10 min during market hours
+    period: 1d
+    interval: 5m
     fields: [open, high, low, close, volume, dividends]

@@ -1,29 +1,41 @@
+import pandas as pd
 import pytest
 import yaml
 
 import main
 
+_ROWS = [(pd.Timestamp("2026-06-23 16:00:00", tz="UTC"), {"close": 150.0})]
+
 
 class TestMakeJob:
     def test_calls_fetch_and_upsert(self, mocker):
-        mock_fetch = mocker.patch("main.fetcher.fetch", return_value={"close": 150.0})
+        mock_fetch = mocker.patch("main.fetcher.fetch", return_value=_ROWS)
         mock_upsert = mocker.patch("main.db.upsert")
 
-        job = main.make_job("AAPL", ["close"])
+        job = main.make_job("AAPL", ["close"], "1d", "1d")
         job()
 
-        mock_fetch.assert_called_once_with("AAPL", ["close"])
-        mock_upsert.assert_called_once_with("AAPL", {"close": 150.0})
+        mock_fetch.assert_called_once_with("AAPL", ["close"], "1d", "1d")
+        mock_upsert.assert_called_once_with("AAPL", _ROWS)
+
+    def test_period_and_interval_forwarded(self, mocker):
+        mock_fetch = mocker.patch("main.fetcher.fetch", return_value=_ROWS)
+        mocker.patch("main.db.upsert")
+
+        job = main.make_job("SPY", ["close"], "5d", "5m")
+        job()
+
+        mock_fetch.assert_called_once_with("SPY", ["close"], "5d", "5m")
 
     def test_job_name_includes_symbol(self):
-        job = main.make_job("GOOGL", ["close"])
+        job = main.make_job("GOOGL", ["close"], "1d", "1d")
         assert "GOOGL" in job.__name__
 
     def test_exception_does_not_propagate(self, mocker):
         mocker.patch("main.fetcher.fetch", side_effect=Exception("boom"))
         mocker.patch("main.db.upsert")
 
-        job = main.make_job("AAPL", ["close"])
+        job = main.make_job("AAPL", ["close"], "1d", "1d")
         job()  # must not raise
 
 
@@ -32,12 +44,14 @@ class TestRunOnStartup:
         config = {
             "settings": {"run_on_startup": run_on_startup},
             "tickers": [
-                {"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"]},
-                {"symbol": "GOOGL", "schedule": "0 9 * * 1-5", "fields": ["close"]},
+                {"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"],
+                 "period": "1d", "interval": "1d"},
+                {"symbol": "GOOGL", "schedule": "0 9 * * 1-5", "fields": ["close"],
+                 "period": "1d", "interval": "1d"},
             ],
         }
         mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(config)))
-        mock_fetch = mocker.patch("main.fetcher.fetch", return_value={"close": 100.0})
+        mock_fetch = mocker.patch("main.fetcher.fetch", return_value=_ROWS)
         mocker.patch("main.db.upsert")
         mocker.patch("main.db.ensure_schema")
         mock_scheduler = mocker.MagicMock()
@@ -60,7 +74,7 @@ class TestRunOnStartup:
             "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"]}]
         }
         mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(config)))
-        mock_fetch = mocker.patch("main.fetcher.fetch", return_value={"close": 100.0})
+        mock_fetch = mocker.patch("main.fetcher.fetch", return_value=_ROWS)
         mocker.patch("main.db.upsert")
         mocker.patch("main.db.ensure_schema")
         mock_scheduler = mocker.MagicMock()
@@ -69,16 +83,30 @@ class TestRunOnStartup:
         main.main()
         mock_fetch.assert_not_called()
 
+    def test_missing_period_interval_defaults_to_1d(self, mocker):
+        config = {
+            "settings": {"run_on_startup": True},
+            "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"]}],
+        }
+        mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(config)))
+        mock_fetch = mocker.patch("main.fetcher.fetch", return_value=_ROWS)
+        mocker.patch("main.db.upsert")
+        mocker.patch("main.db.ensure_schema")
+        mocker.patch("main.BlockingScheduler").return_value
+
+        main.main()
+        mock_fetch.assert_called_once_with("AAPL", ["close"], "1d", "1d")
+
     def test_scheduler_started(self, mocker):
         self._run_main(mocker, run_on_startup=False)
-        # BlockingScheduler.start() must be called regardless of run_on_startup
         mock_scheduler = mocker.patch("main.BlockingScheduler").return_value
         main_config = {
             "settings": {"run_on_startup": False},
-            "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"]}],
+            "tickers": [{"symbol": "AAPL", "schedule": "0 16 * * 1-5", "fields": ["close"],
+                         "period": "1d", "interval": "1d"}],
         }
         mocker.patch("builtins.open", mocker.mock_open(read_data=yaml.dump(main_config)))
-        mocker.patch("main.fetcher.fetch", return_value={})
+        mocker.patch("main.fetcher.fetch", return_value=_ROWS)
         mocker.patch("main.db.upsert")
         mocker.patch("main.db.ensure_schema")
         main.main()

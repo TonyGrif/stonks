@@ -41,7 +41,7 @@ def setup_logging() -> None:
     )
 
 
-def make_job(symbol: str, fields: list[str]) -> Callable:
+def make_job(symbol: str, fields: list[str], period: str, interval: str) -> Callable:
     """Create a scheduler-compatible job function for a single ticker.
 
     The returned callable fetches ``fields`` for ``symbol`` via
@@ -52,6 +52,10 @@ def make_job(symbol: str, fields: list[str]) -> Callable:
     Args:
         symbol: The ticker symbol to fetch (e.g. ``"AAPL"``).
         fields: List of field names to retrieve on each invocation.
+        period: How far back to fetch (e.g. ``"1d"``, ``"5d"``). Passed
+            through to :func:`fetcher.fetch`.
+        interval: Bar size (e.g. ``"1d"``, ``"5m"``). Passed through to
+            :func:`fetcher.fetch`.
 
     Returns:
         A zero-argument callable suitable for use as an APScheduler job.
@@ -59,9 +63,9 @@ def make_job(symbol: str, fields: list[str]) -> Callable:
     """
     def job() -> None:
         logger = logging.getLogger("job")
-        logger.info("[%s] fetch started", symbol)
+        logger.info("[%s] fetch started (period=%s, interval=%s)", symbol, period, interval)
         try:
-            data = fetcher.fetch(symbol, fields)
+            data = fetcher.fetch(symbol, fields, period, interval)
             db.upsert(symbol, data)
             logger.info("[%s] fetch complete", symbol)
         except Exception as e:
@@ -79,6 +83,7 @@ def main() -> None:
         2. Load ``config.yaml`` (or the path in ``CONFIG_PATH``).
         3. Ensure the database schema exists.
         4. Register one APScheduler cron job per ticker entry.
+           ``period`` and ``interval`` default to ``"1d"`` if omitted.
         5. If ``settings.run_on_startup`` is ``true``, run all jobs once
            immediately before handing control to the scheduler.
         6. Start the blocking scheduler (runs until process is killed).
@@ -100,10 +105,15 @@ def main() -> None:
         symbol = entry["symbol"]
         fields = entry["fields"]
         schedule = entry["schedule"]
+        period = entry.get("period", "1d")
+        interval = entry.get("interval", "1d")
 
-        job = make_job(symbol, fields)
+        job = make_job(symbol, fields, period, interval)
         scheduler.add_job(job, CronTrigger.from_crontab(schedule), id=symbol)
-        logger.info("[%s] registered — schedule: %s — fields: %s", symbol, schedule, fields)
+        logger.info(
+            "[%s] registered — schedule: %s, period: %s, interval: %s — fields: %s",
+            symbol, schedule, period, interval, fields,
+        )
 
         if run_on_startup:
             logger.info("[%s] run_on_startup triggered", symbol)
